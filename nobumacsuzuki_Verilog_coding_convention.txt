@@ -1,0 +1,115 @@
+inputはin_、outputはout_、inoutはinout_をprefixにする
+(例)
+module I2CSlaveTest(
+	input wire in_clk,
+	input wire [2:0] in_button,
+	input wire in_I2C_SCL,
+	inout wire inoutI2C_SDA
+	);
+
+カウンターの終了条件などは#parameterで書く、各終了条件にハードコードしない
+(例)
+parameter DEBOUCE_TIMER_EXPIRED = 8'd1
+assign counter_debounce_timer_expired = (counter_debounce_timer == DEBOUCE_TIMER_EXPIRED)? 1'b1: 1'b0;
+
+regの書き方の例
+parameter _4BIT_COUNTER_EXPIRED = 4'd9;
+//
+reg [3:0] _4bit_counter;
+wire is_4bit_counter_expired;
+//
+assing is_4bit_counter_expired = (_4bit_counter == _4BIT_COUNTER_EXPIRED)? 1'b1; 1'b0;
+//
+always @(posedge in_clk or pos_edge in_reset)
+begin
+	// reset
+	if (in_reset == 1'b1);
+		_4bit_counter <= 4'd0;
+	else // add the condition if there is an enable signal
+	begin
+		if (is_4bit_counter_expired)
+			_4bit_counter <= 4'd0;
+		else
+			_4bit_counter <= _4bit_counter + 4'd1;
+	end
+end
+//
+assign out_led[3:0] = _4bit_counter;
+
+moduleを接続する場合には、定義をちゃんと書く
+(例)
+	SignalDebounce // これがも接続するmodule名
+	#(.DEBOUCE_TIMER_EXPIRED(8'd24), .INIT_SIGNAL_DEBOUNCED(1'b1)) // module内の設定可能なパラメータ
+	SignalDebounceI2C_SCL // このmoduleでのインスタンス名
+	(
+		.in_clk(in_clk),
+		.in_reset(reset),
+		.in_signal_bouncing(I2C_SCL),
+		.out_signal_debounced(i2c_scl_debounced)
+	);
+
+こちらがそのモジュールの定義
+module SignalDebounce
+	#(
+		parameter DEBOUCE_TIMER_EXPIRED = 8'd1,
+		parameter INIT_SIGNAL_DEBOUNCED = 1'b1
+	)
+	(
+		input wire in_clk,
+		input wire in_reset,
+		input wire in_signal_bouncing,
+		output reg out_signal_debounced
+	);
+
+state machineの記述例
+//
+// I2C Slave state machine
+//
+parameter I2C_STOP = 3'd0;
+parameter I2C_START = 3'd1;
+parameter I2C_ADDR_ACQUISITION = 3'd2;
+parameter I2C_ADDR_ACK_NACK = 3'd3;
+parameter I2C_DATA_ACQUISITION = 3'd4;
+parameter I2C_DATA_ACK_NACK = 3'd5;
+parameter I2C_RESTART = 3'd6;
+//
+reg [2:0] state_machine_i2c_slave;
+//
+always @(posedge is_I2C_START, posedge is_I2C_STOP, negedge i2c_scl_debounced, posedge reset)
+begin
+	// reset
+	if (reset)
+		state_machine_i2c_slave <= I2C_STOP;
+	// STOP assertion
+	// state machine operation
+	if (is_I2C_STOP)
+		state_machine_i2c_slave <= I2C_STOP;
+	else
+	begin			
+		case(state_machine_i2c_slave)
+			I2C_STOP:
+				if (is_I2C_START)
+					state_machine_i2c_slave <= I2C_START;
+			I2C_START:
+				if (i2c_scl_debounced == 1'b0)
+					state_machine_i2c_slave <= I2C_ADDR_ACQUISITION;					
+			I2C_ADDR_ACQUISITION:
+				if (counter_i2c_address_acquistion_expired)
+					state_machine_i2c_slave <= I2C_ADDR_ACK_NACK;
+			I2C_ADDR_ACK_NACK:
+				state_machine_i2c_slave <= I2C_DATA_ACQUISITION; // wait one SCLK to next
+			I2C_DATA_ACQUISITION:
+				if (counter_i2c_data_bit_acquistion_expired)
+					state_machine_i2c_slave <= I2C_DATA_ACK_NACK;
+			I2C_DATA_ACK_NACK:
+				if (latch_i2c_data_full)
+					state_machine_i2c_slave <= I2C_RESTART;
+				else
+					state_machine_i2c_slave <= I2C_DATA_ACQUISITION;
+			I2C_RESTART:
+				state_machine_i2c_slave <= I2C_ADDR_ACQUISITION;
+			default:
+				state_machine_i2c_slave <= I2C_STOP;
+		endcase
+	end
+end
