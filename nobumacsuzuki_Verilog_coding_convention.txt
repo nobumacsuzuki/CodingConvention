@@ -4,7 +4,7 @@ module I2CSlaveTest(
 	input wire in_clk,
 	input wire [2:0] in_button,
 	input wire in_I2C_SCL,
-	inout wire inoutI2C_SDA
+	inout wire inout_I2C_SDA
 	);
 
 カウンターの終了条件などは#parameterで書く、各終了条件にハードコードしない
